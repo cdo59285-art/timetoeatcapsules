@@ -8,21 +8,19 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Badge } from "@/components/ui/badge"
 import { Progress } from "@/components/ui/progress"
-import { Slider } from "@/components/ui/slider"
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { 
   Bell, BellOff, Clock, Calendar, Droplet, Sun, Moon, Sparkles, 
   Pill, TestTube, Package, AlertTriangle, Check, 
-  Trash2, ChevronRight, Utensils, Dna, Fish, Leaf, Zap, Info
+  Trash2, Utensils, Dna, Fish, Leaf, Zap, Info
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import {
   type UserSettings,
   type PeriodInfo,
   type Reminder,
-  type SupplementItem,
   loadSettings,
   saveSettings,
   getPeriodInfo,
@@ -403,7 +401,7 @@ export default function SupplementReminder() {
           </div>
         </div>
 
-        {/* Inventory InventorySheet (带Slider, 999上限, 删除功能) */}
+        {/* Inventory InventorySheet (用原生input取代外部组件) */}
         <Sheet open={inventoryOpen} onOpenChange={setInventoryOpen}>
           <SheetContent side="bottom" className="h-[80vh] rounded-t-3xl text-xs flex flex-col">
             <SheetHeader className="pb-2">
@@ -443,20 +441,27 @@ export default function SupplementReminder() {
                         </Button>
                       </div>
 
-                      {/* 数量双向修改：滑动条 + 数字精准输入 */}
+                      {/* 数量双向修改：原生滑动条 + 数字精准输入 */}
                       <div className="flex items-center gap-3 bg-muted/40 p-2.5 rounded-lg border border-border/50">
                         <span className="text-[10px] text-muted-foreground font-medium w-6">余量</span>
-                        <Slider 
-                          value={[s.inventory]} 
-                          max={999} 
-                          min={0} 
-                          step={1}
-                          onValueChange={(val) => {
-                            const updated = settings.supplements.map(sup => sup.id === s.id ? { ...sup, inventory: val[0] } : sup)
+                        
+                        <input
+                          type="range"
+                          min="0"
+                          max="999"
+                          step="1"
+                          value={s.inventory}
+                          onChange={(e) => {
+                            const val = Math.min(999, Math.max(0, parseInt(e.target.value) || 0))
+                            const updated = settings.supplements.map(sup => sup.id === s.id ? { ...sup, inventory: val } : sup)
                             handleSaveSettings({ ...settings, supplements: updated })
                           }}
-                          className={cn("flex-1", isLow && "[&_[role=slider]]:border-red-500 [&_[data-orientation=horizontal]>div]:bg-red-500")}
+                          className={cn(
+                            "flex-1 h-1.5 bg-border rounded-lg appearance-none cursor-pointer accent-primary",
+                            isLow && "accent-red-500"
+                          )}
                         />
+
                         <Input 
                           type="number"
                           value={s.inventory}
