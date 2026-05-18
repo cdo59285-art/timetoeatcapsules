@@ -8,796 +8,366 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Badge } from "@/components/ui/badge"
 import { Progress } from "@/components/ui/progress"
-import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet"
+import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "@/components/ui/dialog"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { 
-  Bell, BellOff, Clock, Calendar, Droplet, Droplets, Sun, Moon, Sparkles, 
-  Pill, TestTube, Settings, Package, AlertTriangle, Check, 
-  Plus, Minus, ChevronRight, Utensils, Dna, Fish, Leaf, Zap
+  Bell, BellOff, Clock, Calendar, Droplet, Sun, Moon, Sparkles, 
+  Pill, TestTube, Package, AlertTriangle, Check, 
+  Plus, Minus, ChevronRight, Utensils, Dna, Fish, Leaf, Zap, Info, Trash2, Settings
 } from "lucide-react"
 import { cn } from "@/lib/utils"
-import {
-  type UserSettings,
-  type PeriodInfo,
-  type Reminder,
-  type TimeStatus,
-  type SupplementItem,
-  loadSettings,
-  saveSettings,
-  getPeriodInfo,
-  getReminders,
-  getCurrentTime,
-  formatTime,
-  parseTimeString,
-  isOddDay,
-  getDayOfWeek,
-  getTimeStatus,
-  getNextSlotIndex,
-  getLowStockSupplements,
-  updateInventory,
-  consumeSupplements,
-  setPeriodStartDate,
-  getNotificationEnabled,
-  setNotificationEnabled as saveNotificationEnabled,
-} from "@/lib/supplements"
 
-// ==================== Icon Map ====================
-const iconMap: Record<string, React.ComponentType<{ className?: string }>> = {
-  sun: Sun,
-  moon: Moon,
-  sparkles: Sparkles,
-  droplet: Droplet,
-  droplets: Droplets,
-  pill: Pill,
-  dna: Dna,
-  fish: Fish,
-  leaf: Leaf,
-  zap: Zap,
-  utensils: Utensils,
-  clock: Clock,
+// ============================================================================
+// 1. 底层类型与默认配置 (Types & Defaults)
+// ============================================================================
+type SupplementItem = {
+  id: string; name: string; icon: string; color: string;
+  inventory: number; lowStockThreshold: number; dosage: number; description: string;
 }
 
-function getIcon(iconName: string, className?: string) {
-  const IconComponent = iconMap[iconName] || Pill
-  return <IconComponent className={className} />
+type SlotConfig = { oddDay: string[]; evenDay: string[]; evenDayIronPeriod?: string[] }
+
+type UserSettings = {
+  lastPeriodStart: string;
+  cycleLength: number;
+  periodDuration: number;
+  ironDays: number;
+  times: { morning: number; lunch: number; evening: number; night: number };
+  supplements: SupplementItem[];
+  slotSupplements: { morning: SlotConfig; lunch: SlotConfig; evening: SlotConfig; night: SlotConfig };
 }
 
-// ==================== Components ====================
-function TimeDisplay({ time, date, isOdd }: { time: string; date: string; isOdd: boolean }) {
-  return (
-    <div className="text-center py-6 px-4">
-      <div className="text-5xl font-light tracking-tight text-foreground tabular-nums">
-        {time}
-      </div>
-      <div className="flex items-center justify-center gap-2 mt-2 text-sm text-muted-foreground">
-        <Calendar className="w-4 h-4" />
-        <span>{date}</span>
-        <span className={cn(
-          "px-2 py-0.5 rounded-full text-xs font-medium",
-          isOdd ? "bg-primary/10 text-primary" : "bg-warning/20 text-warning-foreground"
-        )}>
-          {isOdd ? '单数日' : '双数日'}
-        </span>
-      </div>
-    </div>
-  )
+const DEFAULT_SETTINGS: UserSettings = {
+  lastPeriodStart: "2026-04-20",
+  cycleLength: 39,
+  periodDuration: 6,
+  ironDays: 14,
+  times: { morning: 8.0, lunch: 12.5, evening: 18.5, night: 22.0 },
+  supplements: [
+    { id: "probiotic", name: "钟根堂益生菌", icon: "dna", color: "bg-teal-500/10 text-teal-600 border-teal-500/20", inventory: 30, lowStockThreshold: 5, dosage: 1, description: "早饭前空腹" },
+    { id: "oliveoil", name: "鲜榨橄榄油", icon: "droplet", color: "bg-lime-500/10 text-lime-600 border-lime-500/20", inventory: 30, lowStockThreshold: 5, dosage: 1, description: "1小勺" },
+    { id: "silymarin", name: "水飞蓟", icon: "leaf", color: "bg-green-500/10 text-green-600 border-green-500/20", inventory: 60, lowStockThreshold: 10, dosage: 1, description: "护肝" },
+    { id: "zinc", name: "葡萄糖酸锌", icon: "zap", color: "bg-amber-500/10 text-amber-600 border-amber-500/20", inventory: 60, lowStockThreshold: 10, dosage: 1, description: "单数日吃" },
+    { id: "krill", name: "磷虾油", icon: "fish", color: "bg-rose-500/10 text-rose-600 border-rose-500/20", inventory: 60, lowStockThreshold: 10, dosage: 1, description: "双数日随餐" },
+    { id: "vitd", name: "维D3+K2", icon: "sun", color: "bg-yellow-500/10 text-yellow-600 border-yellow-500/20", inventory: 60, lowStockThreshold: 10, dosage: 1, description: "促钙吸收" },
+    { id: "calcium", name: "纯柠檬酸钙", icon: "pill", color: "bg-sky-500/10 text-sky-600 border-sky-500/20", inventory: 60, lowStockThreshold: 10, dosage: 1, description: "强绑定D3" },
+    { id: "iron", name: "螯合铁", icon: "pill", color: "bg-red-500/10 text-red-600 border-red-500/20", inventory: 30, lowStockThreshold: 5, dosage: 1, description: "经后两周黄金期" },
+    { id: "vitc", name: "维生素C", icon: "sparkles", color: "bg-orange-500/10 text-orange-600 border-orange-500/20", inventory: 90, lowStockThreshold: 15, dosage: 1, description: "抗氧化助铁" },
+    { id: "magnesium", name: "甘氨酸镁", icon: "moon", color: "bg-indigo-500/10 text-indigo-600 border-indigo-500/20", inventory: 60, lowStockThreshold: 10, dosage: 2, description: "睡前舒缓" }
+  ],
+  slotSupplements: {
+    morning: { oddDay: ["probiotic"], evenDay: ["probiotic"] },
+    lunch: { oddDay: ["oliveoil", "silymarin", "zinc"], evenDay: ["krill", "vitd", "calcium", "silymarin"] },
+    evening: { oddDay: ["vitc"], evenDay: ["vitc"], evenDayIronPeriod: ["iron", "vitc"] },
+    night: { oddDay: ["magnesium"], evenDay: ["magnesium"] }
+  }
 }
 
-function PeriodStatusCard({ periodInfo }: { periodInfo: PeriodInfo }) {
-  const getStatusConfig = () => {
-    if (periodInfo.inPeriod) {
-      return {
-        title: '经期中',
-        subtitle: `今日第 ${Math.floor(periodInfo.dayInCycle) + 1} 天`,
-        description: '不吃铁剂',
-        color: 'bg-destructive/10 border-destructive/20',
-        textColor: 'text-destructive',
-        dotColor: 'bg-destructive'
-      }
-    } else if (periodInfo.takeIron) {
-      return {
-        title: '铁剂期',
-        subtitle: `经后第 ${Math.floor(periodInfo.afterPeriod) + 1} 天`,
-        description: '双数日晚饭后吃铁',
-        color: 'bg-warning/10 border-warning/20',
-        textColor: 'text-warning-foreground',
-        dotColor: 'bg-warning'
-      }
-    } else {
-      return {
-        title: '休整期',
-        subtitle: `距离下次经期`,
-        description: `约 ${Math.floor(periodInfo.daysLeft)} 天`,
-        color: 'bg-success/10 border-success/20',
-        textColor: 'text-success',
-        dotColor: 'bg-success'
+// 鲁棒性加载：将旧版本的对象型时间转换为数字型时间
+function normalizeTime(val: any, fallback: number): number {
+  if (typeof val === 'number') return val;
+  if (typeof val === 'object' && val !== null) return Object.values(val)[0] as number || fallback;
+  return fallback;
+}
+
+function loadSettings(): UserSettings {
+  if (typeof window === 'undefined') return DEFAULT_SETTINGS
+  try {
+    const saved = localStorage.getItem('supplement_app_v4')
+    if (!saved) return DEFAULT_SETTINGS
+    const parsed = JSON.parse(saved)
+    return {
+      ...DEFAULT_SETTINGS,
+      ...parsed,
+      times: {
+        morning: normalizeTime(parsed.times?.morning, 8.0),
+        lunch: normalizeTime(parsed.times?.lunch, 12.5),
+        evening: normalizeTime(parsed.times?.evening, 18.5),
+        night: normalizeTime(parsed.times?.night, 22.0),
       }
     }
-  }
-
-  const config = getStatusConfig()
-
-  return (
-    <div className={cn("mx-4 rounded-xl p-4 border transition-all", config.color)}>
-      <div className="flex items-center gap-3">
-        <div className={cn("w-2.5 h-2.5 rounded-full", config.dotColor)} />
-        <div className="flex-1">
-          <div className="flex items-center gap-2">
-            <span className={cn("font-semibold", config.textColor)}>{config.title}</span>
-            <span className="text-sm text-muted-foreground">{config.subtitle}</span>
-          </div>
-          <p className="text-sm text-muted-foreground mt-0.5">{config.description}</p>
-        </div>
-      </div>
-    </div>
-  )
+  } catch { return DEFAULT_SETTINGS }
 }
 
-function StatusBadge({ status }: { status: TimeStatus }) {
-  if (status === 'active') {
-    return (
-      <span className="px-2.5 py-1 rounded-full text-xs font-semibold bg-primary text-primary-foreground animate-pulse">
-        现在
-      </span>
-    )
-  }
-  if (status === 'coming') {
-    return (
-      <span className="px-2.5 py-1 rounded-full text-xs font-semibold bg-warning/20 text-warning-foreground">
-        即将
-      </span>
-    )
-  }
-  if (status === 'passed') {
-    return (
-      <span className="px-2.5 py-1 rounded-full text-xs font-medium bg-muted text-muted-foreground">
-        已过
-      </span>
-    )
-  }
-  return null
+function saveSettings(settings: UserSettings) {
+  if (typeof window !== 'undefined') localStorage.setItem('supplement_app_v4', JSON.stringify(settings))
 }
 
-function ReminderCard({ 
-  reminder, 
-  index,
-  onConsume,
-  cardRef 
-}: { 
-  reminder: Reminder
-  index: number
-  onConsume: (ids: string[]) => void
-  cardRef?: React.RefObject<HTMLDivElement | null>
-}) {
-  const status = getTimeStatus(reminder.time)
-  const isActive = status === 'active'
-  const isComing = status === 'coming'
-  const isPassed = status === 'passed'
+function getCurrentTime(date = new Date()) { return date.getHours() + date.getMinutes() / 60 }
+function formatTime(h: number) { return `${String(Math.floor(h)).padStart(2, '0')}:${String(Math.round((h % 1) * 60)).padStart(2, '0')}` }
+function parseTimeString(s: string) { const [h, m] = s.split(':').map(Number); return h + (m || 0) / 60; }
+function isOddDay(date: Date) { return date.getDate() % 2 !== 0 }
 
-  const handleConsume = () => {
-    const ids = reminder.items.map(i => i.id)
-    onConsume(ids)
+// ============================================================================
+// 2. 核心组件库与主页面 (Main App)
+// ============================================================================
+const iconMap: Record<string, React.ComponentType<{ className?: string }>> = {
+  sun: Sun, moon: Moon, sparkles: Sparkles, droplet: Droplet, pill: Pill, dna: Dna, fish: Fish, leaf: Leaf, zap: Zap, utensils: Utensils, clock: Clock
+}
+function getIcon(name: string, cn?: string) { const Comp = iconMap[name] || Pill; return <Comp className={cn} /> }
+
+export default function SupplementApp() {
+  const [settings, setSettings] = useState<UserSettings | null>(null)
+  const [now, setNow] = useState(new Date())
+  const [inventoryOpen, setInventoryOpen] = useState(false)
+  const cardRefs = useRef<(HTMLDivElement | null)[]>([])
+
+  useEffect(() => { setSettings(loadSettings()) }, [])
+  useEffect(() => {
+    const timer = setInterval(() => setNow(new Date()), 1000)
+    return () => clearInterval(timer)
+  }, [])
+
+  if (!settings) return <div className="min-h-screen flex items-center justify-center text-muted-foreground animate-pulse text-sm">唤醒智能中枢...</div>
+
+  // 经期计算
+  const diffDays = Math.max(0, Math.floor((now.getTime() - new Date(settings.lastPeriodStart).getTime()) / 86400000))
+  const dayInCycle = diffDays % settings.cycleLength
+  const inPeriod = dayInCycle < settings.periodDuration
+  const afterPeriod = dayInCycle - settings.periodDuration
+  const takeIron = !inPeriod && afterPeriod >= 0 && afterPeriod < settings.ironDays
+  const daysLeft = settings.cycleLength - dayInCycle
+
+  // 生成提醒列表
+  const isOdd = isOddDay(now)
+  const getItemsForSlot = (slotKey: keyof UserSettings['slotSupplements']) => {
+    let ids: string[] = []
+    if (isOdd) ids = settings.slotSupplements[slotKey].oddDay
+    else {
+      if (slotKey === 'evening' && takeIron && settings.slotSupplements.evening.evenDayIronPeriod) {
+        ids = settings.slotSupplements.evening.evenDayIronPeriod
+      } else {
+        ids = settings.slotSupplements[slotKey].evenDay
+      }
+    }
+    return ids.map(id => settings.supplements.find(s => s.id === id)).filter(Boolean) as SupplementItem[]
+  }
+
+  const allReminders = [
+    { key: 'morning', label: '早饭前', sublabel: '空腹吸收', time: settings.times.morning, items: getItemsForSlot('morning'), icon: 'sun', warnings: [] },
+    { key: 'lunch', label: '中饭后', sublabel: '饱腹抗疲劳', time: settings.times.lunch, items: getItemsForSlot('lunch'), icon: 'utensils', warnings: !isOdd ? ["✨ 完美协同：钙与D3K2已强强绑定，随油脂加倍吸收。"] : [] },
+    { key: 'evening', label: '晚饭后', sublabel: '伴随苹果麦片', time: settings.times.evening, items: getItemsForSlot('evening'), icon: 'sparkles', warnings: takeIron && !isOdd ? ["🩸 黄金吃铁日：维C辅助吸收铁剂。"] : [] },
+    { key: 'night', label: '睡前', sublabel: '神经舒缓', time: settings.times.night, items: getItemsForSlot('night'), icon: 'moon', warnings: ["💡 完美避让：镁与钙已拉开绝对时差。"] }
+  ].map(r => {
+    // 经期自动保护：停镁、停钙D3
+    if (inPeriod) {
+      if (r.key === 'night') r.items = []
+      if (r.key === 'lunch') r.items = r.items.filter(i => !['calcium', 'vitd'].includes(i.id))
+    }
+    return r
+  }).filter(r => r.items.length > 0).sort((a, b) => a.time - b.time)
+
+  const handleConsume = (ids: string[]) => {
+    const updated = {
+      ...settings,
+      supplements: settings.supplements.map(s => ids.includes(s.id) ? { ...s, inventory: Math.max(0, s.inventory - (s.dosage || 1)) } : s)
+    }
+    setSettings(updated); saveSettings(updated);
   }
 
   return (
-    <Card 
-      ref={cardRef}
-      className={cn(
-        "transition-all duration-300 border-2 animate-fade-in-up",
-        isActive && "border-primary bg-primary/5 shadow-lg shadow-primary/10",
-        isComing && "border-warning bg-warning/5",
-        isPassed && "opacity-50 border-muted",
-        !isActive && !isComing && !isPassed && "border-border hover:border-primary/30"
-      )} 
-      style={{ animationDelay: `${index * 80}ms` }}
-    >
-      <CardContent className="p-4">
-        <div className="flex items-start justify-between mb-3">
-          <div className="flex items-center gap-3">
-            <div className={cn(
-              "w-10 h-10 rounded-xl flex items-center justify-center transition-colors",
-              isActive ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground"
-            )}>
-              {getIcon(reminder.icon, "w-5 h-5")}
-            </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <span className={cn(
-                  "text-lg font-semibold tabular-nums",
-                  isActive ? "text-primary" : isPassed ? "text-muted-foreground" : "text-foreground"
-                )}>
-                  {formatTime(reminder.time)}
-                </span>
-                {isActive && <Bell className="w-4 h-4 text-primary animate-bell-ring" />}
-              </div>
-              <p className="text-sm text-muted-foreground">{reminder.label}</p>
-            </div>
+    <main className="min-h-screen flex items-center justify-center p-4 bg-zinc-50 dark:bg-zinc-950">
+      <div className="w-full max-w-md bg-card rounded-3xl shadow-xl border border-border overflow-hidden">
+        
+        {/* Header */}
+        <div className="p-5 text-center border-b border-border bg-card">
+          <div className="text-4xl font-light tracking-tight tabular-nums mt-2">{formatTime(getCurrentTime(now))}</div>
+          <div className="flex items-center justify-center gap-2 mt-2 text-xs text-muted-foreground">
+            <span>{now.toLocaleDateString('zh-CN', { weekday: 'short', month: 'short', day: 'numeric' })}</span>
+            <span className={cn("px-2 py-0.5 rounded-full font-medium", isOdd ? "bg-blue-500/10 text-blue-600" : "bg-amber-500/10 text-amber-600")}>
+              {isOdd ? '单数日' : '双数日'}
+            </span>
           </div>
-          <StatusBadge status={status} />
         </div>
-        
-        <div className="flex flex-wrap gap-2 mb-3">
-          {reminder.items.map((item, i) => (
-            <div
-              key={i}
-              className={cn(
-                "flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium border transition-all",
-                item.color,
-                isActive && "ring-1 ring-primary/20",
-                item.inventory <= item.lowStockThreshold && "ring-2 ring-destructive/50"
-              )}
-            >
-              {getIcon(item.icon, "w-3.5 h-3.5")}
-              <span>{item.name}</span>
-              {item.inventory <= item.lowStockThreshold && (
-                <AlertTriangle className="w-3 h-3 text-destructive" />
-              )}
-            </div>
-          ))}
-        </div>
-        
-        <div className="flex items-center justify-between">
-          <p className="text-xs text-muted-foreground flex items-center gap-1">
-            <ChevronRight className="w-3 h-3" />
-            {reminder.sublabel}
+
+        {/* 经期智能看板 */}
+        <div className={cn("m-4 rounded-xl p-3 border text-xs", 
+          inPeriod ? "bg-rose-500/10 border-rose-500/20 text-rose-600" :
+          takeIron ? "bg-amber-500/10 border-amber-500/20 text-amber-600" : "bg-emerald-500/10 border-emerald-500/20 text-emerald-600"
+        )}>
+          <p className="font-bold flex items-center gap-1.5">
+            <Droplet className="w-3.5 h-3.5" />
+            {inPeriod ? `经期保护中 (第 ${dayInCycle + 1} 天)` : takeIron ? `黄金吃铁期 (第 ${afterPeriod + 1} 天)` : '休整期'}
           </p>
-          {(isActive || isComing) && (
-            <Button 
-              size="sm" 
-              variant={isActive ? "default" : "outline"}
-              className="h-8 text-xs"
-              onClick={handleConsume}
-            >
-              <Check className="w-3.5 h-3.5 mr-1" />
-              已服用
-            </Button>
-          )}
-        </div>
-      </CardContent>
-    </Card>
-  )
-}
-
-function LowStockAlert({ supplements, onOpenInventory }: { supplements: SupplementItem[], onOpenInventory: () => void }) {
-  if (supplements.length === 0) return null
-
-  return (
-    <div className="mx-4 mb-4 p-3 bg-destructive/10 border border-destructive/20 rounded-xl">
-      <div className="flex items-start gap-2">
-        <AlertTriangle className="w-4 h-4 text-destructive shrink-0 mt-0.5" />
-        <div className="flex-1">
-          <p className="text-sm font-medium text-destructive">库存不足</p>
-          <p className="text-xs text-muted-foreground mt-0.5">
-            {supplements.map(s => s.name).join('、')} 需要补货
+          <p className="opacity-90 mt-1">
+            {inPeriod ? '已为您暂停骨骼组(钙镁D3)，降低胃肠负担。' : takeIron ? '系统会在双数日晚间精准推送螯合铁。' : `距下次生理期倒计时：${daysLeft} 天`}
           </p>
         </div>
-        <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={onOpenInventory}>
-          查看
-        </Button>
-      </div>
-    </div>
-  )
-}
 
-function InventorySheet({ 
-  settings, 
-  onUpdateInventory,
-  open,
-  onOpenChange
-}: { 
-  settings: UserSettings
-  onUpdateInventory: (id: string, change: number) => void
-  open: boolean
-  onOpenChange: (open: boolean) => void
-}) {
-  return (
-    <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent side="bottom" className="h-[80vh] rounded-t-3xl">
-        <SheetHeader className="pb-4">
-          <SheetTitle className="flex items-center gap-2">
-            <Package className="w-5 h-5" />
-            补剂库存
-          </SheetTitle>
-        </SheetHeader>
-        <ScrollArea className="h-[calc(100%-60px)] pr-4">
-          <div className="space-y-3">
-            {settings.supplements.map(supplement => {
-              const percentage = Math.min(100, (supplement.inventory / (supplement.lowStockThreshold * 3)) * 100)
-              const isLow = supplement.inventory <= supplement.lowStockThreshold
-              
-              return (
-                <div key={supplement.id} className="p-4 rounded-xl border border-border bg-card">
+        {/* 提醒卡片流 */}
+        <ScrollArea className="h-[360px] px-4 space-y-3 pb-4">
+          {allReminders.map((reminder) => {
+            const current = getCurrentTime(now)
+            const diff = current - reminder.time
+            const isActive = Math.abs(diff) < 0.25
+            const isPassed = diff >= 0.25
+
+            return (
+              <Card key={reminder.key} className={cn("transition-all border-2 mb-3", isActive && "border-primary bg-primary/5", isPassed && "opacity-50 border-transparent")}>
+                <CardContent className="p-3 text-xs">
                   <div className="flex items-center justify-between mb-2">
                     <div className="flex items-center gap-2">
-                      <div className={cn("w-8 h-8 rounded-lg flex items-center justify-center", supplement.color)}>
-                        {getIcon(supplement.icon, "w-4 h-4")}
+                      <div className={cn("w-7 h-7 rounded flex items-center justify-center", isActive ? "bg-primary text-white" : "bg-muted text-muted-foreground")}>
+                        {getIcon(reminder.icon, "w-3.5 h-3.5")}
                       </div>
-                      <div>
-                        <p className="font-medium text-sm">{supplement.name}</p>
-                        {supplement.description && (
-                          <p className="text-xs text-muted-foreground">{supplement.description}</p>
-                        )}
+                      <span className="font-bold text-sm">{formatTime(reminder.time)} <span className="font-normal text-muted-foreground text-xs ml-1">({reminder.label})</span></span>
+                    </div>
+                    {isActive && <Button size="sm" className="h-6 text-[10px]" onClick={() => handleConsume(reminder.items.map(i => i.id))}><Check className="w-3 h-3 mr-1" />已服</Button>}
+                  </div>
+
+                  <div className="flex flex-wrap gap-1.5 mb-2">
+                    {reminder.items.map(item => (
+                      <div key={item.id} className={cn("px-2 py-1 rounded border flex items-center gap-1", item.color)}>
+                        <span>{item.name}</span>
+                        <span className="opacity-70 text-[10px] font-bold">[{item.dosage}粒/条]</span>
+                      </div>
+                    ))}
+                  </div>
+
+                  {reminder.warnings.map((w, i) => (
+                    <p key={i} className="bg-zinc-100 dark:bg-zinc-900 p-1.5 rounded text-muted-foreground mt-1 flex items-start gap-1">
+                      <Info className="w-3.5 h-3.5 text-primary shrink-0" /> <span className="scale-95 origin-left">{w}</span>
+                    </p>
+                  ))}
+                </CardContent>
+              </Card>
+            )
+          })}
+        </ScrollArea>
+
+        {/* 底部高阶控制中心 */}
+        <div className="p-4 border-t bg-muted/20">
+          <div className="grid grid-cols-2 gap-2">
+            
+            {/* 时间与周期智能设置 (恢复全配置!) */}
+            <Dialog>
+              <DialogTrigger asChild><Button variant="outline" className="h-9 text-xs"><Settings className="w-3.5 h-3.5 mr-1" />智能系统设置</Button></DialogTrigger>
+              <DialogContent className="max-w-sm rounded-2xl">
+                <DialogHeader><DialogTitle>时间与周期排班调控</DialogTitle></DialogHeader>
+                <div className="grid grid-cols-2 gap-4 py-2">
+                  <div className="space-y-3 border-r pr-4">
+                    <p className="text-xs font-bold text-primary mb-2">每日时间轴</p>
+                    {['morning', 'lunch', 'evening', 'night'].map((k, i) => (
+                      <div key={k} className="space-y-1">
+                        <Label className="text-[10px] text-muted-foreground">{['早饭前', '中饭后', '晚饭后', '睡前'][i]}</Label>
+                        <Input type="time" className="h-7 text-xs" value={formatTime(settings.times[k as keyof typeof settings.times])} 
+                          onChange={e => {
+                            const t = parseTimeString(e.target.value)
+                            const updated = { ...settings, times: { ...settings.times, [k]: t } }
+                            setSettings(updated); saveSettings(updated);
+                          }} 
+                        />
+                      </div>
+                    ))}
+                  </div>
+                  <div className="space-y-3">
+                    <p className="text-xs font-bold text-primary mb-2">生理与停药周期</p>
+                    <div className="space-y-1">
+                      <Label className="text-[10px] text-muted-foreground">完整周期天数 (默认39)</Label>
+                      <Input type="number" className="h-7 text-xs" value={settings.cycleLength} onChange={e => {
+                        const updated = { ...settings, cycleLength: Number(e.target.value) || 39 }
+                        setSettings(updated); saveSettings(updated);
+                      }} />
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-[10px] text-muted-foreground">经期天数 (默认6)</Label>
+                      <Input type="number" className="h-7 text-xs" value={settings.periodDuration} onChange={e => {
+                        const updated = { ...settings, periodDuration: Number(e.target.value) || 6 }
+                        setSettings(updated); saveSettings(updated);
+                      }} />
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-[10px] text-muted-foreground">吃铁黄金天数 (默认14)</Label>
+                      <Input type="number" className="h-7 text-xs" value={settings.ironDays} onChange={e => {
+                        const updated = { ...settings, ironDays: Number(e.target.value) || 14 }
+                        setSettings(updated); saveSettings(updated);
+                      }} />
+                    </div>
+                    <Button size="sm" variant="destructive" className="w-full h-7 text-[10px] mt-2" onClick={() => {
+                      if (confirm("确定重置今天为经期第一天吗？")) {
+                        const today = new Date(); const d = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,'0')}-${String(today.getDate()).padStart(2,'0')}`
+                        const updated = { ...settings, lastPeriodStart: d }; setSettings(updated); saveSettings(updated);
+                      }
+                    }}>重设今天为经期第1天</Button>
+                  </div>
+                </div>
+              </DialogContent>
+            </Dialog>
+
+            {/* 库存与增删改中心 */}
+            <Button variant="outline" className="h-9 text-xs" onClick={() => setInventoryOpen(true)}><Package className="w-3.5 h-3.5 mr-1" />增删与库存</Button>
+          </div>
+        </div>
+
+        {/* 终极版库存 Sheet (新增补剂、删除、编辑、原生Slider、999输入) */}
+        <Sheet open={inventoryOpen} onOpenChange={setInventoryOpen}>
+          <SheetContent side="bottom" className="h-[85vh] rounded-t-3xl flex flex-col p-4">
+            <SheetHeader className="pb-3 border-b mb-3">
+              <div className="flex justify-between items-center">
+                <SheetTitle className="text-sm flex items-center gap-2"><Package className="w-4 h-4" />补剂增删与库存管理</SheetTitle>
+                <Button size="sm" className="h-7 text-xs" onClick={() => {
+                  const newId = 'sup_' + Date.now()
+                  const newItem: SupplementItem = { id: newId, name: "新补剂", icon: "pill", color: "bg-zinc-100 text-zinc-700", inventory: 30, lowStockThreshold: 5, dosage: 1, description: "自定义" }
+                  // 默认加入午餐排班使其可见
+                  const updated = { 
+                    ...settings, supplements: [newItem, ...settings.supplements], 
+                    slotSupplements: { ...settings.slotSupplements, lunch: { ...settings.slotSupplements.lunch, oddDay: [...settings.slotSupplements.lunch.oddDay, newId], evenDay: [...settings.slotSupplements.lunch.evenDay, newId] } } 
+                  }
+                  setSettings(updated); saveSettings(updated);
+                }}><Plus className="w-3 h-3 mr-1" />新增补剂</Button>
+              </div>
+            </SheetHeader>
+            <ScrollArea className="flex-1 pr-2">
+              <div className="space-y-3 pb-8">
+                {settings.supplements.map(s => (
+                  <div key={s.id} className="p-3 rounded-xl border bg-card relative">
+                    <Button variant="ghost" size="icon" className="absolute top-2 right-2 h-6 w-6 text-red-500 hover:bg-red-50" onClick={() => {
+                      if (confirm(`彻底删除【${s.name}】？`)) {
+                        const updated = { ...settings, supplements: settings.supplements.filter(sup => sup.id !== s.id) }
+                        setSettings(updated); saveSettings(updated);
+                      }
+                    }}><Trash2 className="w-3 h-3" /></Button>
+                    
+                    <div className="flex gap-2 mb-3 pr-8">
+                      <div className="space-y-1 flex-1">
+                        <Label className="text-[10px] text-muted-foreground">名称</Label>
+                        <Input className="h-7 text-xs font-bold border-transparent bg-muted/30 focus:border-border focus:bg-transparent" value={s.name} onChange={e => {
+                          const updated = { ...settings, supplements: settings.supplements.map(sup => sup.id === s.id ? { ...sup, name: e.target.value } : sup) }
+                          setSettings(updated); saveSettings(updated);
+                        }} />
+                      </div>
+                      <div className="space-y-1 w-16">
+                        <Label className="text-[10px] text-muted-foreground">单次量</Label>
+                        <Input type="number" className="h-7 text-xs text-center border-transparent bg-muted/30 focus:border-border" value={s.dosage || 1} onChange={e => {
+                          const updated = { ...settings, supplements: settings.supplements.map(sup => sup.id === s.id ? { ...sup, dosage: Math.max(1, Number(e.target.value)) } : sup) }
+                          setSettings(updated); saveSettings(updated);
+                        }} />
                       </div>
                     </div>
-                    <div className="flex items-center gap-2">
-                      <Button 
-                        variant="outline" 
-                        size="icon" 
-                        className="h-8 w-8"
-                        onClick={() => onUpdateInventory(supplement.id, -1)}
-                      >
-                        <Minus className="w-4 h-4" />
-                      </Button>
-                      <span className={cn(
-                        "w-12 text-center font-semibold tabular-nums",
-                        isLow && "text-destructive"
-                      )}>
-                        {supplement.inventory}
-                      </span>
-                      <Button 
-                        variant="outline" 
-                        size="icon" 
-                        className="h-8 w-8"
-                        onClick={() => onUpdateInventory(supplement.id, 1)}
-                      >
-                        <Plus className="w-4 h-4" />
-                      </Button>
+
+                    <div className="flex items-center gap-3 bg-muted/20 p-2 rounded-lg border border-border/50">
+                      <span className="text-[10px] text-muted-foreground font-medium w-8">总库存</span>
+                      {/* 绝不报错的原生 HTML5 Slider 完美集成 Tailwind */}
+                      <input type="range" min="0" max="999" step="1" value={s.inventory} onChange={e => {
+                        const val = Math.min(999, Math.max(0, parseInt(e.target.value) || 0))
+                        const updated = { ...settings, supplements: settings.supplements.map(sup => sup.id === s.id ? { ...sup, inventory: val } : sup) }
+                        setSettings(updated); saveSettings(updated);
+                      }} className="flex-1 h-1.5 bg-border rounded-lg appearance-none cursor-pointer accent-primary" />
+                      
+                      <Input type="number" max={999} min={0} value={s.inventory} onChange={e => {
+                        const val = Math.min(999, Math.max(0, parseInt(e.target.value) || 0))
+                        const updated = { ...settings, supplements: settings.supplements.map(sup => sup.id === s.id ? { ...sup, inventory: val } : sup) }
+                        setSettings(updated); saveSettings(updated);
+                      }} className="h-7 w-14 text-center text-xs font-bold tabular-nums" />
                     </div>
                   </div>
-                  <Progress 
-                    value={percentage} 
-                    className={cn("h-1.5", isLow && "[&>div]:bg-destructive")}
-                  />
-                  {isLow && (
-                    <p className="text-xs text-destructive mt-1 flex items-center gap-1">
-                      <AlertTriangle className="w-3 h-3" />
-                      低于阈值 ({supplement.lowStockThreshold})
-                    </p>
-                  )}
-                </div>
-              )
-            })}
-          </div>
-        </ScrollArea>
-      </SheetContent>
-    </Sheet>
-  )
-}
+                ))}
+              </div>
+            </ScrollArea>
+          </SheetContent>
+        </Sheet>
 
-function TimeSettingsDialog({ 
-  settings, 
-  onSave 
-}: { 
-  settings: UserSettings
-  onSave: (newSettings: UserSettings) => void
-}) {
-  const [localSettings, setLocalSettings] = useState(settings)
-  const [open, setOpen] = useState(false)
-  const now = new Date()
-  const dayOfWeek = getDayOfWeek(now)
-
-  const handleSave = () => {
-    onSave(localSettings)
-    setOpen(false)
-  }
-
-  const updateMorningTime = (value: string) => {
-    const time = parseTimeString(value)
-    setLocalSettings(prev => ({
-      ...prev,
-      times: {
-        ...prev.times,
-        morning: { ...prev.times.morning, [dayOfWeek]: time }
-      }
-    }))
-  }
-
-  const updateLunchTime = (value: string) => {
-    const time = parseTimeString(value)
-    setLocalSettings(prev => ({
-      ...prev,
-      times: {
-        ...prev.times,
-        lunch: { ...prev.times.lunch, [dayOfWeek]: time }
-      }
-    }))
-  }
-
-  const updateEveningTime = (value: string) => {
-    setLocalSettings(prev => ({
-      ...prev,
-      times: { ...prev.times, evening: parseTimeString(value) }
-    }))
-  }
-
-  const updateNightTime = (value: string) => {
-    setLocalSettings(prev => ({
-      ...prev,
-      times: { ...prev.times, night: parseTimeString(value) }
-    }))
-  }
-
-  return (
-    <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger asChild>
-        <Button variant="outline" size="sm" className="h-10">
-          <Clock className="w-4 h-4 mr-1.5" />
-          调整时间
-        </Button>
-      </DialogTrigger>
-      <DialogContent className="max-w-sm">
-        <DialogHeader>
-          <DialogTitle>调整提醒时间</DialogTitle>
-        </DialogHeader>
-        <div className="space-y-4 py-4">
-          <div className="space-y-2">
-            <Label className="text-sm text-muted-foreground">早饭前 (今日)</Label>
-            <Input 
-              type="time" 
-              value={formatTime(localSettings.times.morning[dayOfWeek])}
-              onChange={e => updateMorningTime(e.target.value)}
-            />
-          </div>
-          <div className="space-y-2">
-            <Label className="text-sm text-muted-foreground">中饭后 (今日)</Label>
-            <Input 
-              type="time" 
-              value={formatTime(localSettings.times.lunch[dayOfWeek])}
-              onChange={e => updateLunchTime(e.target.value)}
-            />
-          </div>
-          <div className="space-y-2">
-            <Label className="text-sm text-muted-foreground">晚饭后 (每日)</Label>
-            <Input 
-              type="time" 
-              value={formatTime(localSettings.times.evening)}
-              onChange={e => updateEveningTime(e.target.value)}
-            />
-          </div>
-          <div className="space-y-2">
-            <Label className="text-sm text-muted-foreground">睡前 (每日)</Label>
-            <Input 
-              type="time" 
-              value={formatTime(localSettings.times.night)}
-              onChange={e => updateNightTime(e.target.value)}
-            />
-          </div>
-        </div>
-        <DialogFooter>
-          <Button onClick={handleSave}>保存</Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  )
-}
-
-function SettingsPanel({
-  settings,
-  notificationEnabled,
-  notificationPermission,
-  onToggleNotification,
-  onResetPeriod,
-  onTestNotification,
-  onOpenInventory,
-  onSaveSettings
-}: {
-  settings: UserSettings
-  notificationEnabled: boolean
-  notificationPermission: NotificationPermission | 'default'
-  onToggleNotification: () => void
-  onResetPeriod: () => void
-  onTestNotification: () => void
-  onOpenInventory: () => void
-  onSaveSettings: (settings: UserSettings) => void
-}) {
-  return (
-    <div className="p-4 border-t border-border bg-card/50">
-      <div className="flex items-center justify-between mb-4">
-        <div className="flex items-center gap-3">
-          {notificationEnabled && notificationPermission === 'granted' ? (
-            <Bell className="w-5 h-5 text-primary" />
-          ) : (
-            <BellOff className="w-5 h-5 text-muted-foreground" />
-          )}
-          <div>
-            <p className="font-medium text-sm">推送通知</p>
-            <p className="text-xs text-muted-foreground">
-              {notificationPermission === 'granted' 
-                ? (notificationEnabled ? '已启用' : '已关闭')
-                : '需要授权'}
-            </p>
-          </div>
-        </div>
-        <Switch 
-          checked={notificationEnabled && notificationPermission === 'granted'}
-          onCheckedChange={onToggleNotification}
-        />
-      </div>
-      
-      <div className="grid grid-cols-2 gap-3 mb-3">
-        <TimeSettingsDialog settings={settings} onSave={onSaveSettings} />
-        <Button variant="outline" size="sm" className="h-10" onClick={onOpenInventory}>
-          <Package className="w-4 h-4 mr-1.5" />
-          库存管理
-        </Button>
-      </div>
-      
-      <div className="grid grid-cols-2 gap-3">
-        <Button 
-          variant="outline" 
-          size="sm" 
-          onClick={onResetPeriod}
-          className="h-10 text-destructive hover:text-destructive hover:bg-destructive/10 border-destructive/30"
-        >
-          <Droplet className="w-4 h-4 mr-1.5" />
-          经期第一天
-        </Button>
-        <Button 
-          variant="outline" 
-          size="sm" 
-          onClick={onTestNotification}
-          className="h-10"
-        >
-          <TestTube className="w-4 h-4 mr-1.5" />
-          测试通知
-        </Button>
-      </div>
-    </div>
-  )
-}
-
-// ==================== Main Component ====================
-export default function SupplementReminder() {
-  const [settings, setSettings] = useState<UserSettings | null>(null)
-  const [currentTime, setCurrentTime] = useState('')
-  const [currentDate, setCurrentDate] = useState('')
-  const [isOdd, setIsOdd] = useState(true)
-  const [periodInfo, setPeriodInfo] = useState<PeriodInfo | null>(null)
-  const [reminders, setReminders] = useState<Reminder[]>([])
-  const [notificationEnabled, setNotificationEnabled] = useState(true)
-  const [notificationPermission, setNotificationPermission] = useState<NotificationPermission | 'default'>('default')
-  const [lastNotifiedHour, setLastNotifiedHour] = useState(-1)
-  const [inventoryOpen, setInventoryOpen] = useState(false)
-  const [hasScrolled, setHasScrolled] = useState(false)
-  
-  const cardRefs = useRef<(HTMLDivElement | null)[]>([])
-  const nextSlotRef = useRef<HTMLDivElement>(null)
-
-  // Initialize
-  useEffect(() => {
-    const loaded = loadSettings()
-    setSettings(loaded)
-    setNotificationEnabled(getNotificationEnabled())
-    if (typeof Notification !== 'undefined') {
-      setNotificationPermission(Notification.permission)
-    }
-  }, [])
-
-  // Scroll to next slot on first load
-  useEffect(() => {
-    if (reminders.length > 0 && !hasScrolled) {
-      const nextIndex = getNextSlotIndex(reminders)
-      const targetRef = cardRefs.current[nextIndex]
-      if (targetRef) {
-        setTimeout(() => {
-          targetRef.scrollIntoView({ behavior: 'smooth', block: 'center' })
-          setHasScrolled(true)
-        }, 300)
-      }
-    }
-  }, [reminders, hasScrolled])
-
-  const sendNotification = useCallback((title: string, body: string) => {
-    if (!notificationEnabled || typeof Notification === 'undefined' || Notification.permission !== 'granted') return
-    
-    try {
-      new Notification(title, {
-        body,
-        tag: title,
-        requireInteraction: false
-      })
-    } catch {
-      // Notification failed
-    }
-  }, [notificationEnabled])
-
-  const updateDisplay = useCallback(() => {
-    if (!settings) return
-    
-    const now = new Date()
-    const newReminders = getReminders(now, settings)
-    const period = getPeriodInfo(now, settings)
-
-    setCurrentTime(`${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`)
-    setCurrentDate(now.toLocaleDateString('zh-CN', { 
-      weekday: 'short', 
-      month: 'short', 
-      day: 'numeric' 
-    }))
-    setIsOdd(isOddDay(now))
-    setPeriodInfo(period)
-
-    // Check for notifications
-    newReminders.forEach(reminder => {
-      const status = getTimeStatus(reminder.time)
-      if (status === 'active') {
-        const current = getCurrentTime()
-        const diff = current - reminder.time
-        const shouldNotify = diff >= -0.033 && diff <= 0.008
-        
-        if (shouldNotify) {
-          const currentHour = now.getHours()
-          if (lastNotifiedHour !== currentHour) {
-            const supplementList = reminder.items.map(s => s.name).join('、')
-            sendNotification(
-              `${reminder.label} ${formatTime(reminder.time)}`,
-              supplementList
-            )
-            setLastNotifiedHour(currentHour)
-          }
-        }
-      }
-    })
-
-    setReminders(newReminders)
-  }, [settings, lastNotifiedHour, sendNotification])
-
-  useEffect(() => {
-    if (!settings) return
-    
-    updateDisplay()
-    const interval = setInterval(updateDisplay, 500)
-    
-    const handleVisibilityChange = () => {
-      if (!document.hidden) {
-        setLastNotifiedHour(-1)
-        setHasScrolled(false)
-        updateDisplay()
-      }
-    }
-    
-    document.addEventListener('visibilitychange', handleVisibilityChange)
-    
-    return () => {
-      clearInterval(interval)
-      document.removeEventListener('visibilitychange', handleVisibilityChange)
-    }
-  }, [settings, updateDisplay])
-
-  const handleSaveSettings = useCallback((newSettings: UserSettings) => {
-    setSettings(newSettings)
-    saveSettings(newSettings)
-  }, [])
-
-  const handleToggleNotification = async () => {
-    if (typeof Notification === 'undefined') return
-    
-    if (Notification.permission === 'default') {
-      const permission = await Notification.requestPermission()
-      setNotificationPermission(permission)
-      if (permission === 'granted') {
-        setNotificationEnabled(true)
-        saveNotificationEnabled(true)
-      }
-    } else if (Notification.permission === 'granted') {
-      const newValue = !notificationEnabled
-      setNotificationEnabled(newValue)
-      saveNotificationEnabled(newValue)
-    }
-  }
-
-  const handleResetPeriod = () => {
-    if (!settings) return
-    const today = new Date()
-    const todayStr = `${today.getFullYear()}-${today.getMonth() + 1}-${today.getDate()}`
-    
-    if (confirm(`确定要把今天 (${todayStr}) 设定为新经期的第一天吗？\n系统将以此日期重新推算后续的铁剂期。`)) {
-      const newSettings = setPeriodStartDate(settings, today)
-      handleSaveSettings(newSettings)
-      setLastNotifiedHour(-1)
-    }
-  }
-
-  const handleTestNotification = () => {
-    if (typeof Notification === 'undefined' || Notification.permission !== 'granted') {
-      alert('请先允许通知权限')
-      return
-    }
-    
-    const currentTimeNum = getCurrentTime()
-    const targetReminder = reminders.find(r => r.time > currentTimeNum) || reminders[0]
-    
-    if (targetReminder) {
-      const sampleText = targetReminder.items.map(s => s.name).join('、')
-      sendNotification(
-        `测试通知 - ${targetReminder.label}`,
-        `${formatTime(targetReminder.time)} ${sampleText}`
-      )
-    }
-  }
-
-  const handleUpdateInventory = (id: string, change: number) => {
-    if (!settings) return
-    const newSettings = updateInventory(settings, id, change)
-    handleSaveSettings(newSettings)
-  }
-
-  const handleConsumeSupplement = (ids: string[]) => {
-    if (!settings) return
-    const newSettings = consumeSupplements(settings, ids)
-    handleSaveSettings(newSettings)
-  }
-
-  if (!settings || !periodInfo) {
-    return (
-      <main className="min-h-screen flex items-center justify-center bg-background">
-        <div className="text-muted-foreground">加载中...</div>
-      </main>
-    )
-  }
-
-  const lowStockSupplements = getLowStockSupplements(settings)
-
-  return (
-    <main className="min-h-screen flex items-center justify-center p-4 bg-background">
-      <div className="w-full max-w-md bg-card rounded-3xl shadow-xl shadow-foreground/5 overflow-hidden border border-border">
-        {/* Header */}
-        <div className="p-6 text-center border-b border-border">
-          <div className="w-14 h-14 bg-primary/10 rounded-2xl flex items-center justify-center mx-auto mb-3">
-            <Pill className="w-7 h-7 text-primary" />
-          </div>
-          <h1 className="text-xl font-semibold text-foreground">补剂提醒</h1>
-          <p className="text-sm text-muted-foreground mt-1">每日4次智能提醒</p>
-        </div>
-        
-        {/* Time Display */}
-        <TimeDisplay time={currentTime} date={currentDate} isOdd={isOdd} />
-        
-        {/* Period Status */}
-        <PeriodStatusCard periodInfo={periodInfo} />
-        
-        {/* Low Stock Alert */}
-        <div className="mt-4">
-          <LowStockAlert 
-            supplements={lowStockSupplements} 
-            onOpenInventory={() => setInventoryOpen(true)} 
-          />
-        </div>
-        
-        {/* Reminder Cards */}
-        <div className="p-4 space-y-3 max-h-[380px] overflow-y-auto">
-          {reminders.map((reminder, index) => (
-            <ReminderCard 
-              key={reminder.key} 
-              reminder={reminder} 
-              index={index}
-              onConsume={handleConsumeSupplement}
-              cardRef={ref => { cardRefs.current[index] = ref }}
-            />
-          ))}
-        </div>
-        
-        {/* Settings Panel */}
-        <SettingsPanel
-          settings={settings}
-          notificationEnabled={notificationEnabled}
-          notificationPermission={notificationPermission}
-          onToggleNotification={handleToggleNotification}
-          onResetPeriod={handleResetPeriod}
-          onTestNotification={handleTestNotification}
-          onOpenInventory={() => setInventoryOpen(true)}
-          onSaveSettings={handleSaveSettings}
-        />
-        
-        {/* Inventory Sheet */}
-        <InventorySheet 
-          settings={settings}
-          onUpdateInventory={handleUpdateInventory}
-          open={inventoryOpen}
-          onOpenChange={setInventoryOpen}
-        />
       </div>
     </main>
   )
