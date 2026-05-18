@@ -8,13 +8,12 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Badge } from "@/components/ui/badge"
 import { Progress } from "@/components/ui/progress"
-import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet"
+import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "@/components/ui/dialog"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { 
   Bell, BellOff, Clock, Calendar, Droplet, Droplets, Sun, Moon, Sparkles, 
-  Pill, TestTube, Settings, Package, AlertTriangle, Check, 
+  Pill, TestTube, Package, AlertTriangle, Check, 
   Plus, Minus, ChevronRight, Utensils, Dna, Fish, Leaf, Zap, Info
 } from "lucide-react"
 import { cn } from "@/lib/utils"
@@ -90,7 +89,7 @@ function PeriodStatusCard({ periodInfo }: { periodInfo: PeriodInfo }) {
       return {
         title: '经期中',
         subtitle: `今日第 ${Math.floor(periodInfo.dayInCycle) + 1} 天`,
-        description: '保护肠胃，已自动为您隐藏补剂，请安心休养养生 ☕',
+        description: '生理期关怀：已为您智能精简隐藏部分补剂，避免刺激肠胃 ☕',
         color: 'bg-destructive/10 border-destructive/20',
         textColor: 'text-destructive',
         dotColor: 'bg-destructive'
@@ -99,7 +98,7 @@ function PeriodStatusCard({ periodInfo }: { periodInfo: PeriodInfo }) {
       return {
         title: '铁剂期',
         subtitle: `经后第 ${Math.floor(periodInfo.afterPeriod) + 1} 天`,
-        description: '黄金补血期！双数日晚饭后会自动加入螯合铁+维C',
+        description: '黄金补血窗口：双数日晚饭后会自动为您排班 螯合铁+维C',
         color: 'bg-warning/10 border-warning/20',
         textColor: 'text-warning-foreground',
         dotColor: 'bg-warning'
@@ -168,7 +167,7 @@ function ReminderCard({
   reminder: Reminder
   index: number
   onConsume: (ids: string[]) => void
-  cardRef?: React.RefObject<HTMLDivElement | null>
+  cardRef?: (node: HTMLDivElement | null) => void
 }) {
   const status = getTimeStatus(reminder.time)
   const isActive = status === 'active'
@@ -217,7 +216,7 @@ function ReminderCard({
           <StatusBadge status={status} />
         </div>
         
-        {/* 服用项目列表：动态读取并呈现每款补剂的特有剂量 [X粒/条] */}
+        {/* 展现补剂和各自特有的 dosage 服用量 */}
         <div className="flex flex-wrap gap-2 mb-3">
           {reminder.items.map((item, i) => (
             <div
@@ -241,11 +240,11 @@ function ReminderCard({
           ))}
         </div>
 
-        {/* 智能排班警示和避开冲突温馨提示（承接底层的 warnings 数据） */}
+        {/* 渲染防冲突提示语 */}
         {reminder.warnings && reminder.warnings.length > 0 && (
-          <div className="mb-3 px-2.5 py-2 rounded-lg bg-info/10 border border-info/20 text-xs text-info-foreground space-y-1">
+          <div className="mb-3 px-2.5 py-2 rounded-lg bg-zinc-50 dark:bg-zinc-900 border border-border text-xs text-muted-foreground space-y-1">
             {reminder.warnings.map((warn, i) => (
-              <p key={i} className="flex items-start gap-1 text-muted-foreground dark:text-zinc-300">
+              <p key={i} className="flex items-start gap-1">
                 <Info className="w-3.5 h-3.5 text-primary shrink-0 mt-0.5" />
                 <span>{warn}</span>
               </p>
@@ -393,56 +392,29 @@ function TimeSettingsDialog({
   settings: UserSettings
   onSave: (newSettings: UserSettings) => void
 }) {
-  const [localSettings, setLocalSettings] = useState(settings)
+  const [localSettings, setLocalSettings] = useState<UserSettings | null>(null)
   const [open, setOpen] = useState(false)
+  
   const now = new Date()
   const dayOfWeek = getDayOfWeek(now)
 
-  // 确保外层配置变动时本地状态同步，防止错页死机
+  // 完美防死机：只有弹窗打开时，才深拷贝同步最外层的真实配置
   useEffect(() => {
-    setLocalSettings(settings)
-  }, [settings])
+    if (open && settings) {
+      setLocalSettings(JSON.parse(JSON.stringify(settings)))
+    }
+  }, [open, settings])
+
+  if (!localSettings || !localSettings.times) return null
 
   const handleSave = () => {
     onSave(localSettings)
     setOpen(false)
   }
 
-  const updateMorningTime = (value: string) => {
-    const time = parseTimeString(value)
-    setLocalSettings(prev => ({
-      ...prev,
-      times: {
-        ...prev.times,
-        morning: { ...prev.times.morning, [dayOfWeek]: time }
-      }
-    }))
-  }
-
-  const updateLunchTime = (value: string) => {
-    const time = parseTimeString(value)
-    setLocalSettings(prev => ({
-      ...prev,
-      times: {
-        ...prev.times,
-        lunch: { ...prev.times.lunch, [dayOfWeek]: time }
-      }
-    }))
-  }
-
-  const updateEveningTime = (value: string) => {
-    setLocalSettings(prev => ({
-      ...prev,
-      times: { ...prev.times, evening: parseTimeString(value) }
-    }))
-  }
-
-  const updateNightTime = (value: string) => {
-    setLocalSettings(prev => ({
-      ...prev,
-      times: { ...prev.times, night: parseTimeString(value) }
-    }))
-  }
+  // 极致防御：防止有些星期下的自定义时间段为 undefined 导致渲染崩塌
+  const getMorningTime = () => localSettings.times.morning[dayOfWeek] ?? 8.0
+  const getLunchTime = () => localSettings.times.lunch[dayOfWeek] ?? 12.0
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
@@ -461,16 +433,34 @@ function TimeSettingsDialog({
             <Label className="text-sm text-muted-foreground">早饭前 (今日)</Label>
             <Input 
               type="time" 
-              value={formatTime(localSettings.times.morning[dayOfWeek] || 8.0)}
-              onChange={e => updateMorningTime(e.target.value)}
+              value={formatTime(getMorningTime())}
+              onChange={e => {
+                const time = parseTimeString(e.target.value)
+                setLocalSettings(prev => prev ? {
+                  ...prev,
+                  times: {
+                    ...prev.times,
+                    morning: { ...prev.times.morning, [dayOfWeek]: time }
+                  }
+                } : null)
+              }}
             />
           </div>
           <div className="space-y-2">
             <Label className="text-sm text-muted-foreground">中饭后 (今日)</Label>
             <Input 
               type="time" 
-              value={formatTime(localSettings.times.lunch[dayOfWeek] || 12.0)}
-              onChange={e => updateLunchTime(e.target.value)}
+              value={formatTime(getLunchTime())}
+              onChange={e => {
+                const time = parseTimeString(e.target.value)
+                setLocalSettings(prev => prev ? {
+                  ...prev,
+                  times: {
+                    ...prev.times,
+                    lunch: { ...prev.times.lunch, [dayOfWeek]: time }
+                  }
+                } : null)
+              }}
             />
           </div>
           <div className="space-y-2">
@@ -478,7 +468,13 @@ function TimeSettingsDialog({
             <Input 
               type="time" 
               value={formatTime(localSettings.times.evening)}
-              onChange={e => updateEveningTime(e.target.value)}
+              onChange={e => {
+                const time = parseTimeString(e.target.value)
+                setLocalSettings(prev => prev ? {
+                  ...prev,
+                  times: { ...prev.times, evening: time }
+                } : null)
+              }}
             />
           </div>
           <div className="space-y-2">
@@ -486,7 +482,13 @@ function TimeSettingsDialog({
             <Input 
               type="time" 
               value={formatTime(localSettings.times.night)}
-              onChange={e => updateNightTime(e.target.value)}
+              onChange={e => {
+                const time = parseTimeString(e.target.value)
+                setLocalSettings(prev => prev ? {
+                  ...prev,
+                  times: { ...prev.times, night: time }
+                } : null)
+              }}
             />
           </div>
         </div>
@@ -587,7 +589,8 @@ export default function SupplementReminder() {
   const [inventoryOpen, setInventoryOpen] = useState(false)
   const [hasScrolled, setHasScrolled] = useState(false)
   
-  const cardRefs = useRef<(HTMLDivElement | null)>([])
+  // 🔥 核心修正：完美恢复为【数组类型】的引用管理，彻底消除 undefined 崩溃死机隐患
+  const cardRefs = useRef<(HTMLDivElement | null)[]>([])
 
   // Initialize
   useEffect(() => {
@@ -599,16 +602,17 @@ export default function SupplementReminder() {
     }
   }, [])
 
-  // 首次加载自动定位滚动至最新时段
+  // 智能无阻滚动
   useEffect(() => {
     if (reminders.length > 0 && !hasScrolled) {
       const nextIndex = getNextSlotIndex(reminders)
       const targetRef = cardRefs.current[nextIndex]
       if (targetRef) {
-        setTimeout(() => {
+        const timer = setTimeout(() => {
           targetRef.scrollIntoView({ behavior: 'smooth', block: 'center' })
           setHasScrolled(true)
         }, 300)
+        return () => clearTimeout(timer)
       }
     }
   }, [reminders, hasScrolled])
@@ -623,7 +627,7 @@ export default function SupplementReminder() {
         requireInteraction: false
       })
     } catch {
-      // Notification failed
+      // 捕获权限变化时的潜在小异常
     }
   }, [notificationEnabled])
 
@@ -643,7 +647,7 @@ export default function SupplementReminder() {
     setIsOdd(isOddDay(now))
     setPeriodInfo(period)
 
-    // 定时轮询通知检测
+    // 检测推送通知
     newReminders.forEach(reminder => {
       const status = getTimeStatus(reminder.time)
       if (status === 'active') {
@@ -750,7 +754,6 @@ export default function SupplementReminder() {
 
   const handleConsumeSupplement = (ids: string[]) => {
     if (!settings) return
-    // 🔥 完美调用：直接调用 supplements.ts 里的扣除逻辑（精确读取各自 dosage 服用数量扣除库存）
     const newSettings = consumeSupplements(settings, ids)
     handleSaveSettings(newSettings)
   }
@@ -758,7 +761,7 @@ export default function SupplementReminder() {
   if (!settings || !periodInfo) {
     return (
       <main className="min-h-screen flex items-center justify-center bg-background">
-        <div className="text-muted-foreground animate-pulse">安全加载底层规则中...</div>
+        <div className="text-muted-foreground animate-pulse text-sm">精密加载底层逻辑中...</div>
       </main>
     )
   }
@@ -799,7 +802,7 @@ export default function SupplementReminder() {
               reminder={reminder} 
               index={index}
               onConsume={handleConsumeSupplement}
-              cardRef={ref => { cardRefs.current[index] = ref }}
+              cardRef={el => { cardRefs.current[index] = el; }}
             />
           ))}
         </div>
@@ -812,8 +815,8 @@ export default function SupplementReminder() {
           onToggleNotification={handleToggleNotification}
           onResetPeriod={handleResetPeriod}
           onTestNotification={handleTestNotification}
-          onOpenInventory={() => setInventoryOpen(true)}
           onSaveSettings={handleSaveSettings}
+          onOpenInventory={() => setInventoryOpen(true)}
         />
         
         {/* Inventory Sheet */}
